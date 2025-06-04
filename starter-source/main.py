@@ -1,87 +1,64 @@
-# import the Quix Streams modules for interacting with Kafka.
-# For general info, see https://quix.io/docs/quix-streams/introduction.html
-# For sources, see https://quix.io/docs/quix-streams/connectors/sources/index.html
 from quixstreams import Application
-from quixstreams.sources import Source
-
 import os
+import time
+import random
+import json
 
-# for local dev, you can load env vars from a .env file
-# from dotenv import load_dotenv
-# load_dotenv()
+# Set required environment variables for local testing
+# os.environ["Quix__Workspace__Id"] = "demo-aiworkshopv2-test"
+# os.environ["Quix__Portal__Api"] = "https://portal-api.demo.quix.io"
+# os.environ["Quix__Sdk__Token"] = "sdk-78e622c490434e94b5c4b5f7a2c3d4b7"
 
-
-class MemoryUsageGenerator(Source):
-    """
-    A Quix Streams Source enables Applications to read data from something other
-    than Kafka and publish it to a desired Kafka topic.
-
-    You provide a Source to an Application, which will handle the Source's lifecycle.
-
-    In this case, we have built a new Source that reads from a static set of
-    already loaded json data representing a server's memory usage over time.
-
-    There are numerous pre-built sources available to use out of the box; see:
-    https://quix.io/docs/quix-streams/connectors/sources/index.html
-    """
-
-    memory_allocation_data = [
-        {"m": "mem", "host": "host1", "used_percent": 64.56, "time": 1577836800000000000},
-        {"m": "mem", "host": "host2", "used_percent": 71.89, "time": 1577836801000000000},
-        {"m": "mem", "host": "host1", "used_percent": 63.27, "time": 1577836803000000000},
-        {"m": "mem", "host": "host2", "used_percent": 73.45, "time": 1577836804000000000},
-        {"m": "mem", "host": "host1", "used_percent": 62.98, "time": 1577836806000000000},
-        {"m": "mem", "host": "host2", "used_percent": 74.33, "time": 1577836808000000000},
-        {"m": "mem", "host": "host1", "used_percent": 65.21, "time": 1577836810000000000},
-    ]
-
-    def run(self):
-        """
-        Each Source must have a `run` method.
-
-        It will include the logic behind your source, contained within a
-        "while self.running" block for exiting when its parent Application stops.
-
-        There a few methods on a Source available for producing to Kafka, like
-        `self.serialize` and `self.produce`.
-        """
-        data = iter(self.memory_allocation_data)
-        # either break when the app is stopped, or data is exhausted
-        while self.running:
-            try:
-                event = next(data)
-                event_serialized = self.serialize(key=event["host"], value=event)
-                self.produce(key=event_serialized.key, value=event_serialized.value)
-                print("Source produced event successfully!")
-            except StopIteration:
-                print("Source finished producing messages.")
-                return
-
+def generate_sensor_data(sensor_id):
+    """Generate realistic sensor data"""
+    sensor_locations = ["factory_floor", "warehouse", "office", "outdoor"]
+    current_time = int(time.time() * 1000)  # milliseconds
+    
+    return {
+        "sensor_id": sensor_id,
+        "location": random.choice(sensor_locations),
+        "temperature": round(random.uniform(18.0, 35.0), 2),
+        "humidity": round(random.uniform(30.0, 80.0), 2),
+        "pressure": round(random.uniform(1000.0, 1025.0), 2),
+        "vibration": round(random.uniform(0.0, 5.0), 3),
+        "timestamp": current_time
+    }
 
 def main():
-    """ Here we will set up our Application. """
+    """Demo sensor data producer"""
+    
+    # Create application (will connect to Quix Cloud)
+    app = Application(
+        consumer_group="sensor_data_producer", 
+        auto_create_topics=True
+    )
+    
+    # Create output topic
+    topic = app.topic("sensor-data")
+    
+    # Create producer
+    with app.get_producer() as producer:
+        message_count = 0
+        sensor_count = 5
+        
+        while message_count < 100:  # Stop after 100 messages for testing
+            for sensor_id in range(1, sensor_count + 1):
+                sensor_data = generate_sensor_data(f"sensor_{sensor_id:03d}")
+                
+                # Produce message (serialize to JSON)
+                producer.produce(
+                    topic=topic.name,
+                    key=sensor_data["sensor_id"].encode(),
+                    value=json.dumps(sensor_data).encode()
+                )
+                
+                print(f"Produced: {sensor_data['sensor_id']} - Temp: {sensor_data['temperature']}°C, Location: {sensor_data['location']}")
+                message_count += 1
+                
+                if message_count >= 100:
+                    break
+            
+            time.sleep(1)  # Send data every second
 
-    # Setup necessary objects
-    app = Application(consumer_group="data_producer", auto_create_topics=True)
-    memory_usage_source = MemoryUsageGenerator(name="memory-usage-producer")
-    output_topic = app.topic(name=os.environ["output"])
-
-    # --- Setup Source ---
-    # OPTION 1: no additional processing with a StreamingDataFrame
-    # Generally the recommended approach; no additional operations needed!
-    app.add_source(source=memory_usage_source, topic=output_topic)
-
-    # OPTION 2: additional processing with a StreamingDataFrame
-    # Useful for consolidating additional data cleanup into 1 Application.
-    # In this case, do NOT use `app.add_source()`.
-    # sdf = app.dataframe(source=source)
-    # <sdf operations here>
-    # sdf.to_topic(topic=output_topic) # you must do this to output your data!
-
-    # With our pipeline defined, now run the Application
-    app.run()
-
-
-#  Sources require execution under a conditional main
 if __name__ == "__main__":
     main()
