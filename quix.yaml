@@ -8,3 +8,4 @@ metadata:
 # This section describes the Topics of the data pipeline
 topics:
   - name: sensor-data
+  - name: workshop
